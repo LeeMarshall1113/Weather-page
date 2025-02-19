@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Standard Weather App</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    /* CSS Variables for light and dark mode */
+    :root {
+      --bg-color: #f2f2f2;
+      --text-color: #333;
+      --control-bg: #fff;
+      --accent-color: #3498db;
+      --border-color: #ccc;
+      --card-bg: #fff;
+      --shadow-color: rgba(0, 0, 0, 0.1);
+    }
+    .dark-mode {
+      --bg-color: #2c3e50;
+      --text-color: #ecf0f1;
+      --control-bg: #34495e;
+      --accent-color: #e74c3c;
+      --border-color: #555;
+      --card-bg: #3c597a;
+      --shadow-color: rgba(0, 0, 0, 0.5);
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg-color);
+      color: var(--text-color);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    #map {
+      height: 100vh;
+    }
+    .controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      background: var(--control-bg);
+      padding: 15px;
+      border-radius: 8px;
+      max-width: 350px;
+      box-shadow: 0 2px 5px var(--shadow-color);
+    }
+    .controls input[type="text"],
+    .controls select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      margin-bottom: 10px;
+      font-size: 16px;
+    }
+    .controls button {
+      padding: 10px 14px;
+      border: none;
+      border-radius: 4px;
+      background: var(--accent-color);
+      color: #fff;
+      cursor: pointer;
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+    .controls button:hover {
+      opacity: 0.9;
+    }
+    .tab-buttons {
+      margin-bottom: 10px;
+    }
+    .tab-buttons button {
+      padding: 8px 12px;
+      margin-right: 5px;
+      border: none;
+      border-radius: 4px;
+      background: var(--accent-color);
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .tab-buttons button.active {
+      font-weight: bold;
+      box-shadow: 0 0 5px var(--accent-color);
+    }
+    .weather-info {
+      margin-top: 10px;
+      background: var(--card-bg);
+      padding: 10px;
+      border-radius: 6px;
+      max-height: 320px;
+      overflow-y: auto;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 1px 3px var(--shadow-color);
+    }
+    .forecast-card {
+      background: var(--card-bg);
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 1px 3px var(--shadow-color);
+    }
+    .forecast-card:last-child {
+      margin-bottom: 0;
+    }
+    .forecast-card h4 {
+      margin: 0 0 5px;
+      font-size: 16px;
+    }
+    .dark-mode-toggle {
+      margin-top: 10px;
+    }
+    /* Optional: Custom scrollbar for forecast container */
+    .weather-info::-webkit-scrollbar {
+      width: 8px;
+    }
+    .weather-info::-webkit-scrollbar-track {
+      background: var(--bg-color);
+    }
+    .weather-info::-webkit-scrollbar-thumb {
+      background-color: var(--accent-color);
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="controls">
+    <input type="text" id="cityInput" placeholder="Enter city name" />
+    <button id="searchBtn">Search</button>
+    
+    <div class="tab-buttons">
+      <button id="currentTab" class="active">Current Weather</button>
+      <button id="forecastTab">Forecast</button>
+    </div>
+    
+    <div id="weatherInfo" class="weather-info">
+      <!-- Weather details will appear here -->
+    </div>
+    
+    <div class="overlay-options">
+      <label for="overlaySelect"><strong>Weather Overlay:</strong></label>
+      <select id="overlaySelect">
+        <option value="precipitation" selected>Precipitation</option>
+        <option value="clouds">Clouds</option>
+        <option value="pressure">Pressure</option>
+        <option value="wind">Wind</option>
+      </select>
+    </div>
+    
+    <div class="dark-mode-toggle">
+      <button id="toggleDarkMode">Toggle Dark Mode</button>
+    </div>
+  </div>
+  
+  <div id="map"></div>
+  
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    // Replace with your actual OpenWeatherMap API key
+    const OPENWEATHERMAP_KEY = 'Insert_key_here';
+
+    // Base tile layers for light and dark mode
+    const lightBaseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    });
+    const darkBaseLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap, &copy; CartoDB'
+    });
+
+    // Initialize the map with the light base layer and disable the default zoom control
+    const map = L.map('map', {
+      layers: [lightBaseLayer],
+      zoomControl: false
+    }).setView([0, 0], 2);
+
+    // Manually add the zoom control in the bottom right corner
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    // Helper function to get a tile layer for the selected overlay
+    function getOverlayTileLayer(overlayType) {
+      let tileLayerURL = "";
+      switch (overlayType) {
+        case "precipitation":
+          tileLayerURL = `https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${OPENWEATHERMAP_KEY}`;
+          break;
+        case "clouds":
+          tileLayerURL = `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${OPENWEATHERMAP_KEY}`;
+          break;
+        case "pressure":
+          tileLayerURL = `https://tile.openweathermap.org/map/pressure_new/{z}/{x}/{y}.png?appid=${OPENWEATHERMAP_KEY}`;
+          break;
+        case "wind":
+          tileLayerURL = `https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${OPENWEATHERMAP_KEY}`;
+          break;
+        default:
+          tileLayerURL = `https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${OPENWEATHERMAP_KEY}`;
+      }
+      return L.tileLayer(tileLayerURL, {
+        maxZoom: 19,
+        opacity: 0.6,
+        attribution: '&copy; OpenWeatherMap'
+      });
+    }
+
+    // Set the initial overlay (precipitation)
+    let weatherOverlayLayer = getOverlayTileLayer("precipitation");
+    weatherOverlayLayer.addTo(map);
+
+    // Track current base layer (light or dark)
+    let currentBaseLayer = lightBaseLayer;
+
+    // Switch base layer while ensuring overlay remains on top
+    function switchBaseLayer(isDark) {
+      map.removeLayer(currentBaseLayer);
+      currentBaseLayer = isDark ? darkBaseLayer : lightBaseLayer;
+      currentBaseLayer.addTo(map);
+      if (!map.hasLayer(weatherOverlayLayer)) {
+        weatherOverlayLayer.addTo(map);
+      }
+      weatherOverlayLayer.bringToFront();
+    }
+
+    // Listen for overlay selection changes
+    document.getElementById('overlaySelect').addEventListener('change', (e) => {
+      const selectedOverlay = e.target.value;
+      if (map.hasLayer(weatherOverlayLayer)) {
+        map.removeLayer(weatherOverlayLayer);
+      }
+      weatherOverlayLayer = getOverlayTileLayer(selectedOverlay);
+      weatherOverlayLayer.addTo(map);
+      weatherOverlayLayer.bringToFront();
+    });
+
+    // Geocode city using Nominatim
+    async function geocodeCity(city) {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city)}`);
+      const data = await response.json();
+      if (!data.length) {
+        throw new Error('City not found.');
+      }
+      return data[0];
+    }
+
+    // Fetch current weather data
+    async function fetchCurrentWeather(lat, lon) {
+      const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${OPENWEATHERMAP_KEY}&units=metric`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch current weather data.');
+      }
+      return response.json();
+    }
+
+    // Fetch forecast data (includes wind, precipitation, etc.)
+    async function fetchForecast(lat, lon) {
+      const response = await fetch(`https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${OPENWEATHERMAP_KEY}&units=metric`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch forecast data.');
+      }
+      return response.json();
+    }
+
+    // Render current weather details
+    function renderCurrentWeather(data) {
+      return `
+        <h3>${data.name}</h3>
+        <p><strong>Temperature:</strong> ${data.main.temp} °C</p>
+        <p><strong>Weather:</strong> ${data.weather[0].description}</p>
+        <p><strong>Humidity:</strong> ${data.main.humidity}%</p>
+        <p><strong>Wind Speed:</strong> ${data.wind.speed} m/s</p>
+      `;
+    }
+
+    // Render forecast as a scrollable list of cards
+    function renderForecast(data) {
+      let html = `<h3>Forecast for ${data.city.name}</h3>`;
+      data.list.forEach(item => {
+        const dateTime = new Date(item.dt * 1000);
+        const precipitation = item.rain && item.rain["3h"] ? item.rain["3h"] + " mm" : "N/A";
+        html += `
+          <div class="forecast-card">
+            <h4>${dateTime.toLocaleString()}</h4>
+            <p><strong>Temp:</strong> ${item.main.temp} °C</p>
+            <p><strong>Weather:</strong> ${item.weather[0].description}</p>
+            <p><strong>Humidity:</strong> ${item.main.humidity}%</p>
+            <p><strong>Wind:</strong> ${item.wind.speed} m/s</p>
+            <p><strong>Precipitation:</strong> ${precipitation}</p>
+          </div>
+        `;
+      });
+      return html;
+    }
+
+    // Track current view and city coordinates
+    let currentView = 'current';
+    let currentCityCoords = null;
+
+    document.getElementById('currentTab').addEventListener('click', () => {
+      currentView = 'current';
+      document.getElementById('currentTab').classList.add('active');
+      document.getElementById('forecastTab').classList.remove('active');
+      if (currentCityCoords) updateWeatherInfo(currentCityCoords.lat, currentCityCoords.lon);
+    });
+
+    document.getElementById('forecastTab').addEventListener('click', () => {
+      currentView = 'forecast';
+      document.getElementById('forecastTab').classList.add('active');
+      document.getElementById('currentTab').classList.remove('active');
+      if (currentCityCoords) updateWeatherInfo(currentCityCoords.lat, currentCityCoords.lon);
+    });
+
+    // Search button: geocode and update weather info
+    document.getElementById('searchBtn').addEventListener('click', async () => {
+      const city = document.getElementById('cityInput').value.trim();
+      const weatherInfoDiv = document.getElementById('weatherInfo');
+      if (!city) {
+        alert('Please enter a city name.');
+        return;
+      }
+      weatherInfoDiv.innerHTML = 'Loading...';
+      try {
+        const location = await geocodeCity(city);
+        const lat = parseFloat(location.lat);
+        const lon = parseFloat(location.lon);
+        currentCityCoords = { lat, lon };
+        map.setView([lat, lon], 10);
+        updateWeatherInfo(lat, lon);
+      } catch (error) {
+        document.getElementById('weatherInfo').innerHTML = `<p>Error: ${error.message}</p>`;
+      }
+    });
+
+    // Update weather info based on current view
+    async function updateWeatherInfo(lat, lon) {
+      const weatherInfoDiv = document.getElementById('weatherInfo');
+      try {
+        if (currentView === 'current') {
+          const data = await fetchCurrentWeather(lat, lon);
+          weatherInfoDiv.innerHTML = renderCurrentWeather(data);
+        } else if (currentView === 'forecast') {
+          const data = await fetchForecast(lat, lon);
+          weatherInfoDiv.innerHTML = renderForecast(data);
+        }
+      } catch (error) {
+        weatherInfoDiv.innerHTML = `<p>Error: ${error.message}</p>`;
+      }
+    }
+
+    // Dark mode toggle for UI and map
+    document.getElementById('toggleDarkMode').addEventListener('click', () => {
+      const body = document.body;
+      body.classList.toggle('dark-mode');
+      const isDark = body.classList.contains('dark-mode');
+      switchBaseLayer(isDark);
+    });
+  </script>
+</body>
+</html>
