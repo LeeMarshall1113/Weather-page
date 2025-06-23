@@ -1,4 +1,4 @@
-# 🌦 Interactive Weather Page
+#  Interactive Weather Page
 
 An interactive, map-based weather application that lets users search for any city to view **current weather**, **forecast**, and live **OpenWeatherMap overlays** (e.g., clouds, precipitation, wind, and pressure). This app also supports **dark mode** and map tile switching.
 
